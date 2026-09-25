@@ -95,6 +95,17 @@ jobs:
           [ "$code" = 2 ] && exit 0
           exit "$code"
 
+      # GitHub's schedule is unreliable (new repos especially can go hours without a run), so each
+      # try queues the next one itself. The schedule above stays as a backup, and the concurrency
+      # group keeps it to one run at a time. It stops once the machine exists.
+      - name: Queue the next try
+        if: steps.ready.outputs.ok == 'true' && steps.hunt.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sleep 480
+          gh workflow run hunt.yml --ref "${GITHUB_REF_NAME}" -R "${GITHUB_REPOSITORY}"
+
       - name: Tell you, and stop hunting
         if: steps.hunt.outputs.exists == 'true'
         env:
