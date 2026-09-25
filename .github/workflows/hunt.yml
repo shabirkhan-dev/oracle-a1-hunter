@@ -21,12 +21,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Until the secrets are added, each run just says so and passes, instead of failing (and
+      # emailing you) every 10 minutes.
+      - name: Check the secrets are set
+        id: ready
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          if [ -n "$OCI_TENANCY_OCID" ] && [ -n "$OCI_PRIVATE_KEY" ] && [ -n "$SSH_PUBLIC_KEY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Add the secrets listed in README.md to start hunting."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.ready.outputs.ok == 'true'
 
       - name: Install the OCI CLI
+        if: steps.ready.outputs.ok == 'true'
         run: pipx install oci-cli
 
       - name: Sign in to Oracle Cloud
+        if: steps.ready.outputs.ok == 'true'
         env:
           OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
           OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
@@ -47,6 +66,7 @@ jobs:
           chmod 600 ~/.oci/config ~/.oci/key.pem
 
       - name: Prepare the machine's key and first boot
+        if: steps.ready.outputs.ok == 'true'
         env:
           SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
@@ -59,6 +79,7 @@ jobs:
           fi
 
       - name: Ask for a machine
+        if: steps.ready.outputs.ok == 'true'
         id: hunt
         env:
           OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
