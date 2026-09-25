@@ -99,7 +99,7 @@ jobs:
       # try queues the next one itself. The schedule above stays as a backup, and the concurrency
       # group keeps it to one run at a time. It stops once the machine exists.
       - name: Queue the next try
-        if: steps.ready.outputs.ok == 'true' && steps.hunt.outputs.exists != 'true'
+        if: ${{ !cancelled() && steps.ready.outputs.ok == 'true' && steps.hunt.outputs.exists != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
