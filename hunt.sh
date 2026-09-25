@@ -102,7 +102,9 @@ main() {
 		for domain in "${domains[@]}"; do
 			log "asking for $ocpus OCPU / ${memory} GB in $domain"
 			local result
-			if result="$(oci compute instance launch --compartment-id "$COMPARTMENT" \
+			# --no-retry: the CLI would otherwise retry "out of capacity" by itself for minutes, and
+			# those retries are what get the account rate limited. The schedule is the retry.
+			if result="$(oci compute instance launch --no-retry --compartment-id "$COMPARTMENT" \
 				--availability-domain "$domain" --shape "$SHAPE" \
 				--shape-config "{\"ocpus\":$ocpus,\"memoryInGBs\":$memory}" \
 				--image-id "$image_id" --subnet-id "$subnet_id" --assign-public-ip true \
@@ -117,7 +119,7 @@ main() {
 			fi
 			case "$result" in
 			*"Out of host capacity"* | *"out of host capacity"*) log "  no capacity" ;;
-			*TooManyRequests* | *"429"*) log "  rate limited; stopping this round" && exit 2 ;;
+			*TooManyRequests* | *'"status": 429'*) log "  rate limited; stopping this round" && exit 2 ;;
 			*LimitExceeded* | *QuotaExceeded* | *"service limit"*)
 				log "  over the free limit at this size (something else may be using it); trying smaller"
 				;;
