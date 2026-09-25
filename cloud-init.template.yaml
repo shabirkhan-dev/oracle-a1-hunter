@@ -1,0 +1,14 @@
+#cloud-config
+# First boot of the new machine: basic tools, some swap (the smaller free sizes are tight for
+# agents), and Tailscale, so it joins your tailnet as "grid" and can be reached from your other
+# devices without opening any port. The workflow fills in __TS_AUTHKEY__ from a secret.
+package_update: true
+packages:
+  - git
+  - curl
+  - unzip
+  - jq
+runcmd:
+  - [bash, -c, "fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab"]
+  - [bash, -c, "curl -fsSL https://tailscale.com/install.sh | sh"]
+  - [bash, -c, "tailscale up --auth-key='__TS_AUTHKEY__' --hostname=grid --ssh"]

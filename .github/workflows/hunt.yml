@@ -1,0 +1,87 @@
+# Every 10 minutes, ask Oracle Cloud for a free Ampere A1 machine until one exists; then open an
+# issue saying so (GitHub notifies you) and turn this workflow off.
+name: Hunt for a free Oracle A1 machine
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: hunt
+  cancel-in-progress: false
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the OCI CLI
+        run: pipx install oci-cli
+
+      - name: Sign in to Oracle Cloud
+        env:
+          OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_PRIVATE_KEY" > ~/.oci/key.pem
+          cat > ~/.oci/config <<CONFIG
+          [DEFAULT]
+          user=$OCI_USER_OCID
+          fingerprint=$OCI_FINGERPRINT
+          tenancy=$OCI_TENANCY_OCID
+          region=$OCI_REGION
+          key_file=$HOME/.oci/key.pem
+          CONFIG
+          chmod 600 ~/.oci/config ~/.oci/key.pem
+
+      - name: Prepare the machine's key and first boot
+        env:
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          printf '%s\n' "$SSH_PUBLIC_KEY" > "$RUNNER_TEMP/key.pub"
+          if [ -n "$TS_AUTHKEY" ]; then
+            sed "s|__TS_AUTHKEY__|$TS_AUTHKEY|" cloud-init.template.yaml > "$RUNNER_TEMP/cloud-init.yaml"
+          else
+            grep -v 'tailscale' cloud-init.template.yaml > "$RUNNER_TEMP/cloud-init.yaml"
+          fi
+
+      - name: Ask for a machine
+        id: hunt
+        env:
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          OCI_SUBNET_OCID: ${{ secrets.OCI_SUBNET_OCID }}
+          SSH_KEY_FILE: ${{ runner.temp }}/key.pub
+          USER_DATA_FILE: ${{ runner.temp }}/cloud-init.yaml
+        run: |
+          set +e
+          ./hunt.sh
+          code=$?
+          # 2 means "no capacity this time": not a failure, just try again later.
+          [ "$code" = 2 ] && exit 0
+          exit "$code"
+
+      - name: Tell you, and stop hunting
+        if: steps.hunt.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DETAIL: ${{ steps.hunt.outputs.detail }}
+          CREATED: ${{ steps.hunt.outputs.created }}
+        run: |
+          if [ "$CREATED" = true ]; then
+            gh issue create --title "Got a free Oracle A1 machine" --body "Created: ${DETAIL}. It joins your tailnet as \"grid\" in a few minutes (if TS_AUTHKEY is set). Hunting is now off."
+          fi
+          gh workflow disable hunt.yml
